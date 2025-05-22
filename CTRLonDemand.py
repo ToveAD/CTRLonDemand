@@ -47,6 +47,14 @@ def create_box_controller(name, size):
     scaled = [(x * size * 5, y, z * size * 5) for x, y, z in points]
     return cmds.curve(p=scaled, d=1, name=name)
 
+ROTATION_ORDER = {
+    "XYZ":0,
+    "YZX":1,
+    "ZXY":2,
+    "XZY":3,
+    "YXZ":4,
+    "ZYX":5,
+}
 
 SHAPE_CREATORS = {
     "Pyramid": create_pyramid_controller,
@@ -118,9 +126,6 @@ def matchPivot(source, target):
     pivot = cmds.xform(target, q=True, ws=True, rp=True)
     cmds.xform(source, ws=True, rp=pivot)
     cmds.xform(source, ws=True, sp=pivot)
-
-def setRotateOrderZXY(control):
-    return cmds.setAttr(control + ".rotateOrder", 2)
 
 def matchTransform(source, target):
     return cmds.delete(cmds.parentConstraint(target, source))
@@ -198,6 +203,41 @@ def update_name_preview():
         cmds.textField("namePreviewField", e=True, text=full_name)
 
 #UI Styling
+def adjust_rotate_order(*_):
+    selection = cmds.ls(selection=True, long=True)
+    if not selection:
+        cmds.warning("Select a controller or its offset group.")
+        return
+
+    selected_order_label = cmds.optionMenu("rotationOrder", q=True, value=True)
+    rotation_order = ROTATION_ORDER.get(selected_order_label, 0)
+
+    for obj in selection:
+        targets = []
+
+        # Direct controller with shape?
+        if cmds.objectType(obj) == "transform":
+            shapes = cmds.listRelatives(obj, shapes=True, f=True) or []
+            if any(cmds.objectType(s) == "nurbsCurve" for s in shapes):
+                targets.append(obj)
+
+        # Offset group? Look inside for child with shape
+        children = cmds.listRelatives(obj, children=True, fullPath=True) or []
+        for child in children:
+            shapes = cmds.listRelatives(child, shapes=True, f=True) or []
+            if any(cmds.objectType(s) == "nurbsCurve" for s in shapes):
+                targets.append(child)
+
+        if not targets:
+            cmds.warning("No controller found under: %s" % obj)
+            continue
+
+        for ctrl in targets:
+            try:
+                cmds.setAttr(ctrl + ".rotateOrder", rotation_order)
+                cmds.warning("Set rotate order to %s on: %s" % (selected_order_label, ctrl))
+            except Exception as e:
+                cmds.warning("Failed to set rotate order on %s: %s" % (ctrl, str(e)))
 
 def adjust_match_transform(*_):
     selection = cmds.ls(selection=True)
@@ -380,6 +420,14 @@ def create_ui():
 
     cmds.text("Select the source then the target")
     cmds.button(label="Match Transform", h=30, bgc=(0.5, 0.5, 0.5), command=adjust_match_transform)
+    Separator(1)
+
+    # Change pivot --->>>>>>>>>
+
+    cmds.frameLayout(label="Rotation Order", collapsable=True,collapse=False, marginHeight=6, marginWidth=6)
+    cmds.columnLayout(adjustableColumn=True, rowSpacing=5)
+    formatOptionMenu("Rotation Order", "rotationOrder", sorted(ROTATION_ORDER.keys()))
+    cmds.button(label="Change rotation order", h=30, bgc=(0.5, 0.5, 0.5), command=adjust_rotate_order)
     Separator(1)
 
     cmds.frameLayout(label="Choose Color", collapsable=True, collapse=False, marginHeight=6, marginWidth=6)
